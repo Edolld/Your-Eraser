@@ -1,0 +1,355 @@
+name: Build APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Generate project
+        run: |
+          mkdir -p proj/app/src/main/java/com/example/eraser proj/app/src/main/assets
+          cd proj
+
+          cat > settings.gradle <<'EOF'
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement { repositories { google(); mavenCentral() } }
+          rootProject.name = "Eraser"
+          include(":app")
+          EOF
+
+          cat > build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.5.2' apply false
+              id 'org.jetbrains.kotlin.android' version '1.9.24' apply false
+          }
+          EOF
+
+          cat > gradle.properties <<'EOF'
+          android.useAndroidX=false
+          org.gradle.jvmargs=-Xmx3g
+          EOF
+
+          cat > app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+              id 'org.jetbrains.kotlin.android'
+          }
+          android {
+              namespace 'com.example.eraser'
+              compileSdk 34
+              defaultConfig {
+                  applicationId 'com.example.eraser'
+                  minSdk 29
+                  targetSdk 34
+                  versionCode 1
+                  versionName '1.0'
+              }
+              androidResources { noCompress 'onnx' }
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+              kotlinOptions { jvmTarget = '17' }
+          }
+          dependencies {
+              implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.19.2'
+          }
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <application
+                  android:label="Ластик"
+                  android:largeHeap="true"
+                  android:theme="@android:style/Theme.Material.Light.NoActionBar">
+                  <activity android:name=".MainActivity" android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          cat > app/src/main/java/com/example/eraser/MainActivity.kt <<'EOF'
+          package com.example.eraser
+
+          import ai.onnxruntime.OnnxJavaType
+          import ai.onnxruntime.OnnxTensor
+          import ai.onnxruntime.OrtEnvironment
+          import ai.onnxruntime.OrtSession
+          import android.app.Activity
+          import android.content.ContentValues
+          import android.content.Context
+          import android.content.Intent
+          import android.graphics.Bitmap
+          import android.graphics.Canvas
+          import android.graphics.Color
+          import android.graphics.ImageDecoder
+          import android.graphics.Matrix
+          import android.graphics.Paint
+          import android.os.Bundle
+          import android.provider.MediaStore
+          import android.view.MotionEvent
+          import android.view.View
+          import android.widget.Button
+          import android.widget.LinearLayout
+          import android.widget.SeekBar
+          import android.widget.TextView
+          import android.widget.Toast
+          import java.io.File
+          import java.nio.ByteBuffer
+
+          class PaintView(c: Context) : View(c) {
+              var bmp: Bitmap? = null
+              var mask: Bitmap? = null
+              var brushPct = 3f
+              private var mc: Canvas? = null
+              private val m = Matrix()
+              private val inv = Matrix()
+              private var lx = 0f
+              private var ly = 0f
+              private val sp = Paint().apply {
+                  color = Color.RED
+                  style = Paint.Style.STROKE
+                  strokeCap = Paint.Cap.ROUND
+                  strokeJoin = Paint.Join.ROUND
+              }
+              private val op = Paint().apply { alpha = 130; isFilterBitmap = true }
+              private val bp = Paint().apply { isFilterBitmap = true }
+
+              fun setImage(b: Bitmap) {
+                  bmp = b
+                  if (mask?.width != b.width || mask?.height != b.height) {
+                      mask = Bitmap.createBitmap(b.width, b.height, Bitmap.Config.ARGB_8888)
+                      mc = Canvas(mask!!)
+                  }
+                  mask!!.eraseColor(0)
+                  fit()
+                  invalidate()
+              }
+
+              private fun fit() {
+                  val b = bmp ?: return
+                  if (width == 0) return
+                  val s = minOf(width.toFloat() / b.width, height.toFloat() / b.height)
+                  m.setScale(s, s)
+                  m.postTranslate((width - b.width * s) / 2, (height - b.height * s) / 2)
+                  m.invert(inv)
+              }
+
+              override fun onSizeChanged(w: Int, h: Int, ow: Int, oh: Int) { fit() }
+
+              override fun onDraw(c: Canvas) {
+                  val b = bmp ?: return
+                  c.drawBitmap(b, m, bp)
+                  c.drawBitmap(mask!!, m, op)
+              }
+
+              override fun onTouchEvent(e: MotionEvent): Boolean {
+                  val b = bmp ?: return false
+                  val p = floatArrayOf(e.x, e.y)
+                  inv.mapPoints(p)
+                  sp.strokeWidth = brushPct / 100f * maxOf(b.width, b.height)
+                  when (e.actionMasked) {
+                      MotionEvent.ACTION_DOWN -> mc!!.drawPoint(p[0], p[1], sp)
+                      MotionEvent.ACTION_MOVE -> mc!!.drawLine(lx, ly, p[0], p[1], sp)
+                  }
+                  lx = p[0]
+                  ly = p[1]
+                  invalidate()
+                  return true
+              }
+          }
+
+          class MainActivity : Activity() {
+              private lateinit var pv: PaintView
+              private lateinit var status: TextView
+              private val undo = ArrayList<Bitmap>()
+              private var session: OrtSession? = null
+              private val env = OrtEnvironment.getEnvironment()
+              @Volatile private var busy = false
+
+              override fun onCreate(s: Bundle?) {
+                  super.onCreate(s)
+                  pv = PaintView(this)
+                  status = TextView(this).apply { text = "Откройте фото"; setPadding(24, 12, 24, 4) }
+                  val seek = SeekBar(this).apply {
+                      max = 100
+                      progress = 30
+                      setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                          override fun onProgressChanged(sb: SeekBar?, p: Int, u: Boolean) { pv.brushPct = maxOf(p, 2) / 10f }
+                          override fun onStartTrackingTouch(sb: SeekBar?) {}
+                          override fun onStopTrackingTouch(sb: SeekBar?) {}
+                      })
+                  }
+                  fun btn(t: String, f: () -> Unit) = Button(this).apply {
+                      text = t
+                      isAllCaps = false
+                      textSize = 13f
+                      setOnClickListener { f() }
+                      layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                  }
+                  val row = LinearLayout(this).apply {
+                      addView(btn("Фото") { startActivityForResult(Intent(Intent.ACTION_GET_CONTENT).setType("image/*"), 1) })
+                      addView(btn("Стереть") { erase() })
+                      addView(btn("Отмена") { undoLast() })
+                      addView(btn("Сохранить") { save() })
+                  }
+                  setContentView(LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      addView(pv, LinearLayout.LayoutParams(-1, 0, 1f))
+                      addView(status)
+                      addView(seek)
+                      addView(row)
+                  })
+              }
+
+              override fun onActivityResult(req: Int, res: Int, data: Intent?) {
+                  val uri = data?.data ?: return
+                  try {
+                      val src = ImageDecoder.createSource(contentResolver, uri)
+                      val bmp = ImageDecoder.decodeBitmap(src) { dec, info, _ ->
+                          val sc = minOf(1f, 2048f / maxOf(info.size.width, info.size.height))
+                          dec.setTargetSize((info.size.width * sc).toInt(), (info.size.height * sc).toInt())
+                          dec.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                      }
+                      undo.clear()
+                      pv.setImage(bmp)
+                      status.text = "Закрасьте объект и нажмите «Стереть»"
+                  } catch (e: Throwable) {
+                      status.text = "Ошибка: ${e.message}"
+                  }
+              }
+
+              private fun undoLast() {
+                  if (undo.isEmpty()) return
+                  pv.setImage(undo.removeAt(undo.size - 1))
+              }
+
+              private fun load(): OrtSession {
+                  val f = File(filesDir, "migan.onnx")
+                  if (!f.exists() || f.length() < 1000000) {
+                      assets.open("migan_pipeline_v2.onnx").use { i -> f.outputStream().use { o -> i.copyTo(o) } }
+                  }
+                  return env.createSession(f.absolutePath, OrtSession.SessionOptions())
+              }
+
+              private fun erase() {
+                  val b = pv.bmp ?: return
+                  val m = pv.mask ?: return
+                  if (busy) return
+                  busy = true
+                  status.text = "Стираю…"
+                  Thread {
+                      try {
+                          val w = b.width
+                          val h = b.height
+                          val n = w * h
+                          val px = IntArray(n)
+                          b.getPixels(px, 0, w, 0, 0, w, h)
+                          val mp = IntArray(n)
+                          m.getPixels(mp, 0, w, 0, 0, w, h)
+                          val img = ByteBuffer.allocateDirect(3 * n)
+                          val mk = ByteBuffer.allocateDirect(n)
+                          var any = false
+                          for (i in 0 until n) {
+                              val c = px[i]
+                              img.put(i, (c shr 16).toByte())
+                              img.put(n + i, (c shr 8).toByte())
+                              img.put(2 * n + i, c.toByte())
+                              val hole = (mp[i] ushr 24) != 0
+                              if (hole) any = true
+                              mk.put(i, if (hole) 0 else 255.toByte())
+                          }
+                          if (!any) {
+                              runOnUiThread { status.text = "Сначала закрасьте объект" }
+                              return@Thread
+                          }
+                          val ses = session ?: load().also { session = it }
+                          val names = ses.inputNames.toList()
+                          val mn = names.firstOrNull { it.contains("mask", true) } ?: names[1]
+                          val inn = names.first { it != mn }
+                          val t1 = OnnxTensor.createTensor(env, img, longArrayOf(1, 3, h.toLong(), w.toLong()), OnnxJavaType.UINT8)
+                          val t2 = OnnxTensor.createTensor(env, mk, longArrayOf(1, 1, h.toLong(), w.toLong()), OnnxJavaType.UINT8)
+                          val res = ses.run(mapOf(inn to t1, mn to t2))
+                          val out = (res.get(0) as OnnxTensor).byteBuffer
+                          val outPx = IntArray(n)
+                          for (i in 0 until n) {
+                              outPx[i] = if ((mp[i] ushr 24) != 0) {
+                                  val r = out.get(i).toInt() and 255
+                                  val g = out.get(n + i).toInt() and 255
+                                  val bl = out.get(2 * n + i).toInt() and 255
+                                  (255 shl 24) or (r shl 16) or (g shl 8) or bl
+                              } else px[i]
+                          }
+                          val result = Bitmap.createBitmap(outPx, w, h, Bitmap.Config.ARGB_8888)
+                          res.close()
+                          t1.close()
+                          t2.close()
+                          runOnUiThread {
+                              undo.add(b)
+                              if (undo.size > 5) undo.removeAt(0)
+                              pv.setImage(result)
+                              status.text = "Готово"
+                          }
+                      } catch (e: Throwable) {
+                          runOnUiThread { status.text = "Ошибка: ${e.message}" }
+                      } finally {
+                          busy = false
+                      }
+                  }.start()
+              }
+
+              private fun save() {
+                  val b = pv.bmp ?: return
+                  val v = ContentValues().apply {
+                      put(MediaStore.Images.Media.DISPLAY_NAME, "eraser_${System.currentTimeMillis()}.jpg")
+                      put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                      put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Eraser")
+                  }
+                  val u = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, v) ?: return
+                  contentResolver.openOutputStream(u)?.use { b.compress(Bitmap.CompressFormat.JPEG, 95, it) }
+                  Toast.makeText(this, "Сохранено в Pictures/Eraser", Toast.LENGTH_LONG).show()
+              }
+          }
+          EOF
+
+      - name: Download MI-GAN model
+        run: |
+          curl -L --fail -o proj/app/src/main/assets/migan_pipeline_v2.onnx \
+            https://huggingface.co/CardAnvilModels/MI-GAN-ONNX/resolve/main/migan_pipeline_v2.onnx
+          ls -l proj/app/src/main/assets
+
+      - name: Build
+        working-directory: proj
+        run: gradle assembleDebug --no-daemon
+
+      - name: Publish APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          cp proj/app/build/outputs/apk/debug/app-debug.apk Eraser.apk
+          gh release create "v${{ github.run_number }}" Eraser.apk \
+            --target "${{ github.sha }}" \
+            --title "Ластик v${{ github.run_number }}" \
+            --notes "Установите Eraser.apk"
+            
