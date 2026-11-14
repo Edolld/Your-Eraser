@@ -23,13 +23,14 @@ jobs:
 
       - name: Generate project
         run: |
-          mkdir -p proj/app/src/main/java/com/example/eraser proj/app/src/main/assets
+          P=$PWD/proj/app/src/main
+          mkdir -p $P/java/com/your/eraser $P/assets $P/res/values $P/res/drawable $P/res/mipmap-anydpi-v26
           cd proj
 
           cat > settings.gradle <<'EOF'
           pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
           dependencyResolutionManagement { repositories { google(); mavenCentral() } }
-          rootProject.name = "Eraser"
+          rootProject.name = "YourEraser"
           include(":app")
           EOF
 
@@ -41,7 +42,7 @@ jobs:
           EOF
 
           cat > gradle.properties <<'EOF'
-          android.useAndroidX=false
+          android.useAndroidX=true
           org.gradle.jvmargs=-Xmx3g
           EOF
 
@@ -51,14 +52,14 @@ jobs:
               id 'org.jetbrains.kotlin.android'
           }
           android {
-              namespace 'com.example.eraser'
+              namespace 'com.your.eraser'
               compileSdk 34
               defaultConfig {
-                  applicationId 'com.example.eraser'
+                  applicationId 'com.your.eraser'
                   minSdk 29
                   targetSdk 34
-                  versionCode 1
-                  versionName '1.0'
+                  versionCode 2
+                  versionName '1.1'
               }
               androidResources { noCompress 'onnx' }
               compileOptions {
@@ -68,16 +69,19 @@ jobs:
               kotlinOptions { jvmTarget = '17' }
           }
           dependencies {
+              implementation 'com.google.android.material:material:1.12.0'
               implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.19.2'
           }
           EOF
 
-          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          cat > $P/AndroidManifest.xml <<'EOF'
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <application
-                  android:label="Ластик"
+                  android:label="Your Eraser"
+                  android:icon="@mipmap/ic_launcher"
+                  android:roundIcon="@mipmap/ic_launcher"
                   android:largeHeap="true"
-                  android:theme="@android:style/Theme.Material.Light.NoActionBar">
+                  android:theme="@style/Theme.YourEraser">
                   <activity android:name=".MainActivity" android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
@@ -88,32 +92,103 @@ jobs:
           </manifest>
           EOF
 
-          cat > app/src/main/java/com/example/eraser/MainActivity.kt <<'EOF'
-          package com.example.eraser
+          cat > $P/res/values/themes.xml <<'EOF'
+          <resources>
+              <style name="Theme.YourEraser" parent="Theme.Material3.DayNight.NoActionBar" />
+          </resources>
+          EOF
+
+          cat > $P/res/values/colors.xml <<'EOF'
+          <resources>
+              <color name="ic_bg">#4F378B</color>
+          </resources>
+          EOF
+
+          cat > $P/res/mipmap-anydpi-v26/ic_launcher.xml <<'EOF'
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@color/ic_bg" />
+              <foreground android:drawable="@drawable/ic_launcher_fg" />
+          </adaptive-icon>
+          EOF
+
+          cat > $P/res/drawable/ic_launcher_fg.xml <<'EOF'
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp" android:height="108dp"
+              android:viewportWidth="108" android:viewportHeight="108">
+              <path android:fillColor="#FFD8E4" android:pathData="M28,58L56,30L68,42L40,70Z" />
+              <path android:fillColor="#EADDFF" android:pathData="M40,70L68,42L80,54L52,82Z" />
+          </vector>
+          EOF
+
+          cat > $P/res/drawable/ic_photo.xml <<'EOF'
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="24dp" android:height="24dp"
+              android:viewportWidth="24" android:viewportHeight="24">
+              <path android:fillColor="#000000" android:pathData="M21,19V5c0,-1.1 -0.9,-2 -2,-2H5c-1.1,0 -2,0.9 -2,2v14c0,1.1 0.9,2 2,2h14c1.1,0 2,-0.9 2,-2zM8.5,13.5l2.5,3.01L14.5,12l4.5,6H5l3.5,-4.5z" />
+          </vector>
+          EOF
+
+          cat > $P/res/drawable/ic_undo.xml <<'EOF'
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="24dp" android:height="24dp"
+              android:viewportWidth="24" android:viewportHeight="24">
+              <path android:fillColor="#000000" android:pathData="M12.5,8c-2.65,0 -5.05,0.99 -6.9,2.6L2,7v9h9l-3.62,-3.62c1.39,-1.16 3.16,-1.88 5.12,-1.88 3.54,0 6.55,2.31 7.6,5.5l2.37,-0.78C21.08,11.03 17.15,8 12.5,8z" />
+          </vector>
+          EOF
+
+          cat > $P/res/drawable/ic_save.xml <<'EOF'
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="24dp" android:height="24dp"
+              android:viewportWidth="24" android:viewportHeight="24">
+              <path android:fillColor="#000000" android:pathData="M19,9h-4V3H9v6H5l7,7 7,-7zM5,18v2h14v-2H5z" />
+          </vector>
+          EOF
+
+          cat > $P/java/com/your/eraser/MainActivity.kt <<'EOF'
+          package com.your.eraser
 
           import ai.onnxruntime.OnnxJavaType
           import ai.onnxruntime.OnnxTensor
           import ai.onnxruntime.OrtEnvironment
           import ai.onnxruntime.OrtSession
-          import android.app.Activity
           import android.content.ContentValues
           import android.content.Context
-          import android.content.Intent
+          import android.content.res.ColorStateList
+          import android.content.res.Configuration
           import android.graphics.Bitmap
           import android.graphics.Canvas
           import android.graphics.Color
           import android.graphics.ImageDecoder
           import android.graphics.Matrix
           import android.graphics.Paint
+          import android.graphics.Typeface
+          import android.graphics.drawable.GradientDrawable
+          import android.net.Uri
           import android.os.Bundle
           import android.provider.MediaStore
+          import android.view.Gravity
           import android.view.MotionEvent
           import android.view.View
-          import android.widget.Button
+          import android.widget.FrameLayout
           import android.widget.LinearLayout
-          import android.widget.SeekBar
           import android.widget.TextView
-          import android.widget.Toast
+          import androidx.activity.result.PickVisualMediaRequest
+          import androidx.activity.result.contract.ActivityResultContracts
+          import androidx.appcompat.app.AppCompatActivity
+          import androidx.core.view.ViewCompat
+          import androidx.core.view.WindowCompat
+          import androidx.core.view.WindowInsetsCompat
+          import com.google.android.material.R as M
+          import com.google.android.material.button.MaterialButton
+          import com.google.android.material.card.MaterialCardView
+          import com.google.android.material.color.DynamicColors
+          import com.google.android.material.color.MaterialColors
+          import com.google.android.material.floatingactionbutton.FloatingActionButton
+          import com.google.android.material.progressindicator.LinearProgressIndicator
+          import com.google.android.material.shape.RelativeCornerSize
+          import com.google.android.material.shape.ShapeAppearanceModel
+          import com.google.android.material.slider.Slider
+          import com.google.android.material.snackbar.Snackbar
           import java.io.File
           import java.nio.ByteBuffer
 
@@ -146,6 +221,11 @@ jobs:
                   invalidate()
               }
 
+              fun clearMask() {
+                  mask?.eraseColor(0)
+                  invalidate()
+              }
+
               private fun fit() {
                   val b = bmp ?: return
                   if (width == 0) return
@@ -169,7 +249,10 @@ jobs:
                   inv.mapPoints(p)
                   sp.strokeWidth = brushPct / 100f * maxOf(b.width, b.height)
                   when (e.actionMasked) {
-                      MotionEvent.ACTION_DOWN -> mc!!.drawPoint(p[0], p[1], sp)
+                      MotionEvent.ACTION_DOWN -> {
+                          parent.requestDisallowInterceptTouchEvent(true)
+                          mc!!.drawPoint(p[0], p[1], sp)
+                      }
                       MotionEvent.ACTION_MOVE -> mc!!.drawLine(lx, ly, p[0], p[1], sp)
                   }
                   lx = p[0]
@@ -179,177 +262,183 @@ jobs:
               }
           }
 
-          class MainActivity : Activity() {
+          class MainActivity : AppCompatActivity() {
               private lateinit var pv: PaintView
               private lateinit var status: TextView
+              private lateinit var eraseBtn: MaterialButton
+              private lateinit var progress: LinearProgressIndicator
+              private lateinit var empty: View
+              private lateinit var rootView: View
               private val undo = ArrayList<Bitmap>()
               private var session: OrtSession? = null
               private val env = OrtEnvironment.getEnvironment()
               @Volatile private var busy = false
 
-              override fun onCreate(s: Bundle?) {
-                  super.onCreate(s)
-                  pv = PaintView(this)
-                  status = TextView(this).apply { text = "Откройте фото"; setPadding(24, 12, 24, 4) }
-                  val seek = SeekBar(this).apply {
-                      max = 100
-                      progress = 30
-                      setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                          override fun onProgressChanged(sb: SeekBar?, p: Int, u: Boolean) { pv.brushPct = maxOf(p, 2) / 10f }
-                          override fun onStartTrackingTouch(sb: SeekBar?) {}
-                          override fun onStopTrackingTouch(sb: SeekBar?) {}
-                      })
-                  }
-                  fun btn(t: String, f: () -> Unit) = Button(this).apply {
-                      text = t
-                      isAllCaps = false
-                      textSize = 13f
-                      setOnClickListener { f() }
-                      layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                  }
-                  val row = LinearLayout(this).apply {
-                      addView(btn("Фото") { startActivityForResult(Intent(Intent.ACTION_GET_CONTENT).setType("image/*"), 1) })
-                      addView(btn("Стереть") { erase() })
-                      addView(btn("Отмена") { undoLast() })
-                      addView(btn("Сохранить") { save() })
-                  }
-                  setContentView(LinearLayout(this).apply {
-                      orientation = LinearLayout.VERTICAL
-                      addView(pv, LinearLayout.LayoutParams(-1, 0, 1f))
-                      addView(status)
-                      addView(seek)
-                      addView(row)
-                  })
+              private val picker = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+                  if (uri != null) openImage(uri)
               }
 
-              override fun onActivityResult(req: Int, res: Int, data: Intent?) {
-                  val uri = data?.data ?: return
+              private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+              private fun col(attr: Int) = MaterialColors.getColor(this, attr, Color.GRAY)
+              private fun pick() = picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+
+              private fun fab(res: Int, desc: String, f: () -> Unit) = FloatingActionButton(this).apply {
+                  setImageResource(res)
+                  contentDescription = desc
+                  setCustomSize(dp(64))
+                  backgroundTintList = ColorStateList.valueOf(col(M.attr.colorSecondaryContainer))
+                  imageTintList = ColorStateList.valueOf(col(M.attr.colorOnSecondaryContainer))
+                  shapeAppearanceModel = ShapeAppearanceModel.builder().setAllCornerSizes(RelativeCornerSize(0.3f)).build()
+                  setCompatElevation(0f)
+                  setOnClickListener { f() }
+              }
+
+              private fun pill(t: String, size: Float, h: Int, bg: Int, fg: Int, f: () -> Unit) = MaterialButton(this).apply {
+                  text = t
+                  isAllCaps = false
+                  textSize = size
+                  setTypeface(null, Typeface.BOLD)
+                  cornerRadius = dp(40)
+                  minimumHeight = dp(h)
+                  backgroundTintList = ColorStateList.valueOf(bg)
+                  setTextColor(fg)
+                  iconTint = ColorStateList.valueOf(fg)
+                  setOnClickListener { f() }
+              }
+
+              override fun onCreate(s: Bundle?) {
+                  super.onCreate(s)
+                  DynamicColors.applyToActivityIfAvailable(this)
+                  WindowCompat.setDecorFitsSystemWindows(window, false)
+                  window.statusBarColor = Color.TRANSPARENT
+                  window.navigationBarColor = Color.TRANSPARENT
+                  window.isNavigationBarContrastEnforced = false
+                  val night = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+                  WindowCompat.getInsetsController(window, window.decorView).apply {
+                      isAppearanceLightStatusBars = !night
+                      isAppearanceLightNavigationBars = !night
+                  }
+
+                  val cOn = col(M.attr.colorOnSurface)
+                  val cOnVar = col(M.attr.colorOnSurfaceVariant)
+                  val cPri = col(M.attr.colorPrimary)
+                  val cOnPri = col(M.attr.colorOnPrimary)
+                  val cSec = col(M.attr.colorSecondaryContainer)
+                  val cOnSec = col(M.attr.colorOnSecondaryContainer)
+
+                  pv = PaintView(this)
+
+                  // Empty state
+                  val openBig = pill("Выбрать фото", 18f, 64, cPri, cOnPri) { pick() }.apply { setIconResource(R.drawable.ic_photo) }
+                  empty = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      gravity = Gravity.CENTER
+                      setPadding(dp(32), dp(32), dp(32), dp(32))
+                      addView(TextView(context).apply {
+                          text = "Стирайте лишнее"
+                          textSize = 30f
+                          setTypeface(null, Typeface.BOLD)
+                          setTextColor(cOn)
+                          gravity = Gravity.CENTER
+                      })
+                      addView(TextView(context).apply {
+                          text = "Объекты, надписи, провода. Всё обрабатывается прямо на телефоне."
+                          textSize = 16f
+                          setTextColor(cOnVar)
+                          gravity = Gravity.CENTER
+                          setPadding(0, dp(12), 0, dp(28))
+                      })
+                      addView(openBig)
+                  }
+
+                  val card = MaterialCardView(this).apply {
+                      radius = dp(36).toFloat()
+                      cardElevation = 0f
+                      strokeWidth = 0
+                      setCardBackgroundColor(col(M.attr.colorSurfaceContainerHigh))
+                      addView(pv, FrameLayout.LayoutParams(-1, -1))
+                      addView(empty, FrameLayout.LayoutParams(-1, -1))
+                  }
+
+                  // Top bar
+                  val topBar = LinearLayout(this).apply {
+                      gravity = Gravity.CENTER_VERTICAL
+                      addView(TextView(context).apply {
+                          text = "Your Eraser"
+                          textSize = 28f
+                          setTypeface(null, Typeface.BOLD)
+                          setTextColor(cOn)
+                      }, LinearLayout.LayoutParams(0, -2, 1f))
+                      addView(fab(R.drawable.ic_photo, "Выбрать фото") { pick() })
+                  }
+
+                  // Bottom panel
+                  status = TextView(this).apply {
+                      text = "Выберите фото, чтобы начать"
+                      textSize = 14f
+                      setTextColor(cOnVar)
+                  }
+                  progress = LinearProgressIndicator(this).apply {
+                      isIndeterminate = true
+                      visibility = View.INVISIBLE
+                  }
+                  val slider = Slider(this).apply {
+                      valueFrom = 2f
+                      valueTo = 100f
+                      value = 30f
+                      setLabelFormatter { it.toInt().toString() }
+                      addOnChangeListener { _, v, _ -> pv.brushPct = v / 10f }
+                  }
+                  val reset = pill("Сбросить", 14f, 40, Color.TRANSPARENT, cPri) { pv.clearMask() }.apply {
+                      stateListAnimator = null
+                  }
+                  val sliderRow = LinearLayout(this).apply {
+                      gravity = Gravity.CENTER_VERTICAL
+                      addView(TextView(context).apply { text = "Кисть"; textSize = 14f; setTextColor(cOn) })
+                      addView(slider, LinearLayout.LayoutParams(0, -2, 1f))
+                      addView(reset)
+                  }
+                  eraseBtn = pill("Стереть", 22f, 64, cPri, cOnPri) { erase() }
+                  val actions = LinearLayout(this).apply {
+                      gravity = Gravity.CENTER_VERTICAL
+                      addView(fab(R.drawable.ic_undo, "Отменить") { undoLast() })
+                      addView(eraseBtn, LinearLayout.LayoutParams(0, dp(64), 1f).apply {
+                          setMargins(dp(12), 0, dp(12), 0)
+                      })
+                      addView(fab(R.drawable.ic_save, "Сохранить") { save() })
+                  }
+                  val panel = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      background = GradientDrawable().apply {
+                          setColor(col(M.attr.colorSurfaceContainer))
+                          val r = dp(36).toFloat()
+                          cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
+                      }
+                      addView(status)
+                      addView(progress, LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, dp(8), 0, 0) })
+                      addView(sliderRow)
+                      addView(actions)
+                  }
+
+                  rootView = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      setBackgroundColor(col(M.attr.colorSurface))
+                      addView(topBar)
+                      addView(card, LinearLayout.LayoutParams(-1, 0, 1f).apply { setMargins(dp(16), dp(4), dp(16), dp(16)) })
+                      addView(panel)
+                  }
+                  setContentView(rootView)
+                  ViewCompat.setOnApplyWindowInsetsListener(rootView) { _, ins ->
+                      val b = ins.getInsets(WindowInsetsCompat.Type.systemBars())
+                      topBar.setPadding(dp(24), b.top + dp(12), dp(16), dp(8))
+                      panel.setPadding(dp(24), dp(20), dp(20), b.bottom + dp(20))
+                      ins
+                  }
+              }
+
+              private fun openImage(uri: Uri) {
                   try {
                       val src = ImageDecoder.createSource(contentResolver, uri)
                       val bmp = ImageDecoder.decodeBitmap(src) { dec, info, _ ->
                           val sc = minOf(1f, 2048f / maxOf(info.size.width, info.size.height))
-                          dec.setTargetSize((info.size.width * sc).toInt(), (info.size.height * sc).toInt())
-                          dec.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
-                      }
-                      undo.clear()
-                      pv.setImage(bmp)
-                      status.text = "Закрасьте объект и нажмите «Стереть»"
-                  } catch (e: Throwable) {
-                      status.text = "Ошибка: ${e.message}"
-                  }
-              }
-
-              private fun undoLast() {
-                  if (undo.isEmpty()) return
-                  pv.setImage(undo.removeAt(undo.size - 1))
-              }
-
-              private fun load(): OrtSession {
-                  val f = File(filesDir, "migan.onnx")
-                  if (!f.exists() || f.length() < 1000000) {
-                      assets.open("migan_pipeline_v2.onnx").use { i -> f.outputStream().use { o -> i.copyTo(o) } }
-                  }
-                  return env.createSession(f.absolutePath, OrtSession.SessionOptions())
-              }
-
-              private fun erase() {
-                  val b = pv.bmp ?: return
-                  val m = pv.mask ?: return
-                  if (busy) return
-                  busy = true
-                  status.text = "Стираю…"
-                  Thread {
-                      try {
-                          val w = b.width
-                          val h = b.height
-                          val n = w * h
-                          val px = IntArray(n)
-                          b.getPixels(px, 0, w, 0, 0, w, h)
-                          val mp = IntArray(n)
-                          m.getPixels(mp, 0, w, 0, 0, w, h)
-                          val img = ByteBuffer.allocateDirect(3 * n)
-                          val mk = ByteBuffer.allocateDirect(n)
-                          var any = false
-                          for (i in 0 until n) {
-                              val c = px[i]
-                              img.put(i, (c shr 16).toByte())
-                              img.put(n + i, (c shr 8).toByte())
-                              img.put(2 * n + i, c.toByte())
-                              val hole = (mp[i] ushr 24) != 0
-                              if (hole) any = true
-                              mk.put(i, if (hole) 0 else 255.toByte())
-                          }
-                          if (!any) {
-                              runOnUiThread { status.text = "Сначала закрасьте объект" }
-                              return@Thread
-                          }
-                          val ses = session ?: load().also { session = it }
-                          val names = ses.inputNames.toList()
-                          val mn = names.firstOrNull { it.contains("mask", true) } ?: names[1]
-                          val inn = names.first { it != mn }
-                          val t1 = OnnxTensor.createTensor(env, img, longArrayOf(1, 3, h.toLong(), w.toLong()), OnnxJavaType.UINT8)
-                          val t2 = OnnxTensor.createTensor(env, mk, longArrayOf(1, 1, h.toLong(), w.toLong()), OnnxJavaType.UINT8)
-                          val res = ses.run(mapOf(inn to t1, mn to t2))
-                          val out = (res.get(0) as OnnxTensor).byteBuffer
-                          val outPx = IntArray(n)
-                          for (i in 0 until n) {
-                              outPx[i] = if ((mp[i] ushr 24) != 0) {
-                                  val r = out.get(i).toInt() and 255
-                                  val g = out.get(n + i).toInt() and 255
-                                  val bl = out.get(2 * n + i).toInt() and 255
-                                  (255 shl 24) or (r shl 16) or (g shl 8) or bl
-                              } else px[i]
-                          }
-                          val result = Bitmap.createBitmap(outPx, w, h, Bitmap.Config.ARGB_8888)
-                          res.close()
-                          t1.close()
-                          t2.close()
-                          runOnUiThread {
-                              undo.add(b)
-                              if (undo.size > 5) undo.removeAt(0)
-                              pv.setImage(result)
-                              status.text = "Готово"
-                          }
-                      } catch (e: Throwable) {
-                          runOnUiThread { status.text = "Ошибка: ${e.message}" }
-                      } finally {
-                          busy = false
-                      }
-                  }.start()
-              }
-
-              private fun save() {
-                  val b = pv.bmp ?: return
-                  val v = ContentValues().apply {
-                      put(MediaStore.Images.Media.DISPLAY_NAME, "eraser_${System.currentTimeMillis()}.jpg")
-                      put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
-                      put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Eraser")
-                  }
-                  val u = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, v) ?: return
-                  contentResolver.openOutputStream(u)?.use { b.compress(Bitmap.CompressFormat.JPEG, 95, it) }
-                  Toast.makeText(this, "Сохранено в Pictures/Eraser", Toast.LENGTH_LONG).show()
-              }
-          }
-          EOF
-
-      - name: Download MI-GAN model
-        run: |
-          curl -L --fail -o proj/app/src/main/assets/migan_pipeline_v2.onnx \
-            https://huggingface.co/CardAnvilModels/MI-GAN-ONNX/resolve/main/migan_pipeline_v2.onnx
-          ls -l proj/app/src/main/assets
-
-      - name: Build
-        working-directory: proj
-        run: gradle assembleDebug --no-daemon
-
-      - name: Publish APK
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          cp proj/app/build/outputs/apk/debug/app-debug.apk Eraser.apk
-          gh release create "v${{ github.run_number }}" Eraser.apk \
-            --target "${{ github.sha }}" \
-            --title "Ластик v${{ github.run_number }}" \
-            --notes "Установите Eraser.apk"
-            
+                   
