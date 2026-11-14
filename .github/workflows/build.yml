@@ -24,7 +24,7 @@ jobs:
           gradle-version: '8.9'
 
       - name: Generate project
-        run: bash gen.sh
+        run: bash .github/workflows/gen.sh
 
       - name: Download MI-GAN model
         run: |
