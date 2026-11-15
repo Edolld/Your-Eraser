@@ -4,8 +4,9 @@
 
 > 🇷🇺 Краткое описание на русском — [ниже](#по-русски).
 
-<img src="docs/before.jpg" width="260">
-<img src="docs/after.jpg" width="260">
+|Before|After|
+|-|-|
+|<img src="docs/before.jpg" width="144">|<img src="docs/after.jpg" width="144">|
 
 Image by **Ilona Ilyés** from **Pixabay**
 
